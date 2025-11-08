@@ -45,5 +45,7 @@ type PageData struct {
 	DocPath            string             // Document path for API calls
 	DocumentLayout     string             // Document layout type from frontmatter (e.g., "kanban")
 	IsEditMode         bool               // Whether page is in edit mode (separate edit page architecture)
+	IsPdfViewerMode    bool               // Whether page is in PDF viewer mode
 	RawContent         string             // Raw markdown content with frontmatter for edit mode
+	PdfFile            string             // PDF file name for PDF viewer mode
 }

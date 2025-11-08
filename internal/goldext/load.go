@@ -48,7 +48,7 @@ func init() {
 	RegisterPreprocessor(StatsPreprocessor)     // Process stats shortcodes
 	RegisterPreprocessor(DetailsPreprocessor)   // Process details blocks
 	// RegisterPreprocessor(TaskListPreprocessor)  // Process task lists before rendering
-	RegisterPreprocessor(TocPreprocessor)       // Process table of contents markers
+	RegisterPreprocessor(TocPreprocessor)           // Process table of contents markers
 	RegisterPreprocessor(HeadingAnchorPreprocessor) // Add ¶ anchors to headings
 
 	// Step 4: Register text formatting preprocessors

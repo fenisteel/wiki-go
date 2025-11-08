@@ -13,10 +13,10 @@ import (
 	"wiki-go/internal/auth"
 	"wiki-go/internal/comments"
 	"wiki-go/internal/config"
+	"wiki-go/internal/frontmatter"
 	"wiki-go/internal/i18n"
 	"wiki-go/internal/types"
 	"wiki-go/internal/utils"
-	"wiki-go/internal/frontmatter"
 )
 
 // PageHandler handles requests for pages
@@ -29,6 +29,17 @@ func PageHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config) {
 	// Detect edit mode from query parameter
 	mode := r.URL.Query().Get("mode")
 	isEditMode := mode == "edit"
+	isPdfViewerMode := mode == "pdf"
+	var pdfFile string
+	if isPdfViewerMode {
+		pdfFile = r.URL.Query().Get("file")
+		/*
+			if pdfFile == "" {
+				NotFoundHandler(w, r, cfg)
+				return
+			}
+		*/
+	}
 
 	// Edit mode requires authentication and editor/admin role
 	if isEditMode {
@@ -96,132 +107,152 @@ func PageHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config) {
 	// Generate breadcrumbs
 	breadcrumbs := generateBreadcrumbs(nav, path)
 
-	var content template.HTML
-	var lastModified time.Time
-	var dirContent template.HTML
-	var rawContent string // Raw markdown content for edit mode
+	if isPdfViewerMode {
+		breadcrumbs[len(breadcrumbs)-1].IsLast = false
+		breadcrumbs = append(breadcrumbs, types.BreadcrumbItem{
+			Title:  pdfFile,
+			Path:   "",
+			IsLast: true,
+		})
+	}
 
-	// Look for document.md in the directory
-	docPath := filepath.Join(fsPath, "document.md")
-	docInfo, err := os.Stat(docPath)
-	if err == nil {
-		// Read and render document.md if it exists
-		mdContent, err := os.ReadFile(docPath)
+	var (
+		content         template.HTML
+		lastModified    time.Time
+		dirContent      template.HTML
+		rawContent      string // Raw markdown content for edit mode
+		userRole        string
+		commentsList    []comments.Comment
+		commentsAllowed bool = false // Default to false
+		isAuthenticated bool
+	)
+
+	if !isPdfViewerMode {
+		// Look for document.md in the directory
+		docPath := filepath.Join(fsPath, "document.md")
+		docInfo, err := os.Stat(docPath)
+		if err == nil {
+			// Read and render document.md if it exists
+			mdContent, err := os.ReadFile(docPath)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			// If in edit mode, store raw content with frontmatter preserved
+			if isEditMode {
+				rawContent = string(mdContent)
+			}
+
+			// Parse frontmatter to get document layout
+			metadata, _, hasFrontmatter := frontmatter.Parse(string(mdContent))
+			documentLayout := ""
+			if hasFrontmatter {
+				documentLayout = metadata.Layout
+			}
+
+			// Use the document path for rendering to handle local file references
+			content = template.HTML(utils.RenderMarkdownWithPath(string(mdContent), decodedPath))
+
+			// If content is empty but document exists, ensure we have something truthy for template conditions
+			if strings.TrimSpace(string(content)) == "" {
+				content = template.HTML(" ") // Single space to make it truthy but effectively empty
+			}
+
+			lastModified = docInfo.ModTime()
+
+			// Update the document layout in the page data
+			navItem.DocumentLayout = documentLayout
+		}
+
+		// List directory contents
+		files, err := os.ReadDir(fsPath)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		// If in edit mode, store raw content with frontmatter preserved
-		if isEditMode {
-			rawContent = string(mdContent)
-		}
+		// Build directory listing HTML
+		var dirItems []string
+		for _, f := range files {
+			if !f.IsDir() || strings.HasPrefix(f.Name(), ".") || f.Name() == "document.md" {
+				continue // Skip non-directories, hidden files, and document.md
+			}
 
-		// Parse frontmatter to get document layout
-		metadata, _, hasFrontmatter := frontmatter.Parse(string(mdContent))
-		documentLayout := ""
-		if hasFrontmatter {
-			documentLayout = metadata.Layout
-		}
+			dirName := f.Name()
+			urlPath := filepath.Join(path, dirName)
 
-		// Use the document path for rendering to handle local file references
-		content = template.HTML(utils.RenderMarkdownWithPath(string(mdContent), decodedPath))
-		
-		// If content is empty but document exists, ensure we have something truthy for template conditions
-		if strings.TrimSpace(string(content)) == "" {
-			content = template.HTML(" ") // Single space to make it truthy but effectively empty
-		}
-		
-		lastModified = docInfo.ModTime()
+			// Check if subdirectory has a document.md
+			subDocPath := filepath.Join(fsPath, dirName, "document.md")
+			if _, err := os.Stat(subDocPath); err == nil {
+				// Use the GetDocumentTitle function which includes emoji processing
+				dirTitle := utils.GetDocumentTitle(filepath.Join(fsPath, dirName))
+				dirItems = append(dirItems, fmt.Sprintf(`<div class="directory-item is-dir"><a href="%s">%s</a></div>`,
+					urlPath, dirTitle))
+				continue
+			}
 
-		// Update the document layout in the page data
-		navItem.DocumentLayout = documentLayout
-	}
-
-	// List directory contents
-	files, err := os.ReadDir(fsPath)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Build directory listing HTML
-	var dirItems []string
-	for _, f := range files {
-		if !f.IsDir() || strings.HasPrefix(f.Name(), ".") || f.Name() == "document.md" {
-			continue // Skip non-directories, hidden files, and document.md
-		}
-
-		dirName := f.Name()
-		urlPath := filepath.Join(path, dirName)
-
-		// Check if subdirectory has a document.md
-		subDocPath := filepath.Join(fsPath, dirName, "document.md")
-		if _, err := os.Stat(subDocPath); err == nil {
-			// Use the GetDocumentTitle function which includes emoji processing
-			dirTitle := utils.GetDocumentTitle(filepath.Join(fsPath, dirName))
+			// Fallback to formatted directory name if no document.md or no title found
+			dirTitle := utils.FormatDirName(dirName)
 			dirItems = append(dirItems, fmt.Sprintf(`<div class="directory-item is-dir"><a href="%s">%s</a></div>`,
 				urlPath, dirTitle))
-			continue
 		}
 
-		// Fallback to formatted directory name if no document.md or no title found
-		dirTitle := utils.FormatDirName(dirName)
-		dirItems = append(dirItems, fmt.Sprintf(`<div class="directory-item is-dir"><a href="%s">%s</a></div>`,
-			urlPath, dirTitle))
-	}
+		if len(dirItems) > 0 {
+			dirContent = template.HTML(strings.Join(dirItems, "\n"))
+		}
 
-	if len(dirItems) > 0 {
-		dirContent = template.HTML(strings.Join(dirItems, "\n"))
-	}
+		// If no document.md exists, show directory title and listing
+		if docInfo == nil {
+			content = template.HTML(fmt.Sprintf("<h1>%s</h1>", navItem.Title))
+			lastModified = info.ModTime()
+		}
 
-	// If no document.md exists, show directory title and listing
-	if docInfo == nil {
-		content = template.HTML(fmt.Sprintf("<h1>%s</h1>", navItem.Title))
-		lastModified = info.ModTime()
-	}
+		// Check if this is a document (not a directory) by checking if there's content and no trailing slash
+		isDocument := docInfo != nil && content != "" && !strings.HasSuffix(r.URL.Path, "/")
 
-	// Check if this is a document (not a directory) by checking if there's content and no trailing slash
-	isDocument := docInfo != nil && content != "" && !strings.HasSuffix(r.URL.Path, "/")
+		// Get authentication status - do this for ALL pages
+		session := auth.GetSession(r)
+		isAuthenticated = session != nil
 
-	// Get authentication status for ALL pages
-	var commentsList []comments.Comment
-	var commentsAllowed bool = false // Default to false
-	var isAuthenticated bool
+		// Get user role
+		if isAuthenticated {
+			userRole = session.Role
+		}
 
-	// Get authentication status - do this for ALL pages
-	session := auth.GetSession(r)
-	isAuthenticated = session != nil
+		// Comments are only available for documents
+		if isDocument {
+			// UNCONDITIONALLY check system-wide setting first
+			if cfg.Wiki.DisableComments {
+				// If comments are disabled system-wide, force commentsAllowed to false
+				commentsAllowed = false
+			} else {
+				// Only check document-specific settings if system allows comments
+				mdContent, _ := os.ReadFile(docPath)
+				commentsAllowed = comments.AreCommentsAllowed(string(mdContent))
 
-	// Get user role
-	userRole := ""
-	if isAuthenticated && session != nil {
-		userRole = session.Role
-	}
+				// Only load comments if they're allowed
+				if commentsAllowed {
+					commentsList, _ = comments.GetComments(decodedPath)
 
-	// Comments are only available for documents
-	if isDocument {
-		// UNCONDITIONALLY check system-wide setting first
-		if cfg.Wiki.DisableComments {
-			// If comments are disabled system-wide, force commentsAllowed to false
-			commentsAllowed = false
-		} else {
-			// Only check document-specific settings if system allows comments
-			mdContent, _ := os.ReadFile(docPath)
-			commentsAllowed = comments.AreCommentsAllowed(string(mdContent))
-
-			// Only load comments if they're allowed
-			if commentsAllowed {
-				commentsList, _ = comments.GetComments(decodedPath)
-
-				// Process comments (render markdown, format timestamps)
-				for i := range commentsList {
-					// Use template.HTML to properly render the HTML without escaping
-					commentsList[i].RenderedHTML = template.HTML(utils.RenderMarkdown(commentsList[i].Content))
-					commentsList[i].FormattedTime = comments.FormatCommentTime(commentsList[i].Timestamp)
+					// Process comments (render markdown, format timestamps)
+					for i := range commentsList {
+						// Use template.HTML to properly render the HTML without escaping
+						commentsList[i].RenderedHTML = template.HTML(utils.RenderMarkdown(commentsList[i].Content))
+						commentsList[i].FormattedTime = comments.FormatCommentTime(commentsList[i].Timestamp)
+					}
 				}
 			}
 		}
+	} else {
+		content = " " //To satisfy template conditions
+		docInfo, err := os.Stat(filepath.Join(cfg.Wiki.RootDir, cfg.Wiki.DocumentsDir, r.URL.Path, pdfFile))
+		if err != nil {
+			http.Error(w, "PDF file not found", http.StatusNotFound)
+			return
+		}
+		lastModified = docInfo.ModTime()
+		pdfFile = "/api/files/documents/" + pdfFile
 	}
 
 	// Prepare template data
@@ -241,7 +272,9 @@ func PageHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config) {
 		DocPath:            decodedPath,
 		DocumentLayout:     navItem.DocumentLayout,
 		IsEditMode:         isEditMode,
+		IsPdfViewerMode:    isPdfViewerMode,
 		RawContent:         rawContent, // Pass raw markdown content for edit mode
+		PdfFile:            pdfFile,
 	}
 
 	renderTemplate(w, data)

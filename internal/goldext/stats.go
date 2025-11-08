@@ -67,11 +67,12 @@ func StatsPreprocessor(markdown string, _ string) string {
 							shortcodeType := params[1]
 							shortcodeValue := params[2]
 
-							if shortcodeType == "count" {
+							switch shortcodeType {
+							case "count":
 								var buf strings.Builder
 								renderDocumentCount(&buf, shortcodeValue)
 								return buf.String()
-							} else if shortcodeType == "recent" {
+							case "recent":
 								count, err := strconv.Atoi(shortcodeValue)
 								if err != nil || count <= 0 {
 									count = 5 // Default to 5 if invalid

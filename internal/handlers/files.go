@@ -1190,7 +1190,7 @@ func RenameFileHandler(w http.ResponseWriter, r *http.Request, cfg *config.Confi
 		possibleNewPathInPages := filepath.Join(cfg.Wiki.RootDir, newPath)
 
 		if fileExists(possibleNewPathInDocuments) ||
-		   (strings.HasPrefix(newPath, "pages/") && fileExists(possibleNewPathInPages)) {
+			(strings.HasPrefix(newPath, "pages/") && fileExists(possibleNewPathInPages)) {
 			// The file with the new name already exists, likely was already renamed
 			fmt.Printf("File already appears to have been renamed to: %s\n", newPath)
 			w.WriteHeader(http.StatusOK)
@@ -1261,13 +1261,4 @@ func fileExists(path string) bool {
 		return false
 	}
 	return !info.IsDir()
-}
-
-// Helper function to check if a directory exists
-func dirExists(path string) bool {
-	info, err := os.Stat(path)
-	if os.IsNotExist(err) {
-		return false
-	}
-	return info.IsDir()
 }

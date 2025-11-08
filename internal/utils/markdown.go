@@ -9,10 +9,77 @@ import (
 	"wiki-go/internal/goldext"
 
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/util"
 )
+
+// Custom HTML renderer for links
+type pdfLinkRenderer struct {
+	html.Config
+}
+
+// NewPDFLinkRenderer creates a new renderer
+func NewLinkRenderer(opts ...html.Option) renderer.NodeRenderer {
+	r := &pdfLinkRenderer{
+		Config: html.NewConfig(),
+	}
+	for _, opt := range opts {
+		opt.SetHTMLOption(&r.Config)
+	}
+	return r
+}
+
+// RegisterFuncs implements NodeRenderer.RegisterFuncs
+func (r *pdfLinkRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
+	// Register the default HTML renderer for all nodes
+	reg.Register(ast.KindLink, r.renderLink)
+}
+
+// Custom render function for links
+func (r *pdfLinkRenderer) renderLink(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	var err error
+	if !entering {
+		_, err = w.WriteString("</a>")
+		if err != nil {
+			return ast.WalkStop, err
+		}
+		return ast.WalkContinue, nil
+	}
+
+	destination := string(node.(*ast.Link).Destination)
+	text := string(node.Text(source))
+
+	destinationLower := strings.ToLower(destination)
+	if strings.HasPrefix(destinationLower, "/api/files/") && strings.HasSuffix(destinationLower, ".pdf") {
+		destination = strings.TrimPrefix(destination, "/api/files")
+		//Render as link to PDF viewer
+		_, err = w.WriteString(`<a href="` + string(util.EscapeHTML([]byte(filepath.Dir(destination)))) + `?mode=pdf&file=` + filepath.Base(destination) + `">` + string(text) + `</a>`)
+		if err != nil {
+			return ast.WalkStop, err
+		}
+		return ast.WalkSkipChildren, err
+	}
+
+	_, err = w.WriteString(`<a href="` + string(util.EscapeHTML([]byte(destination))) + `" target="_blank">` + string(text) + `</a>`)
+	if err != nil {
+		return ast.WalkStop, err
+	}
+	return ast.WalkSkipChildren, nil
+}
+
+// linkExtension is a goldmark.Extender
+type pdfLinkExtension struct{}
+
+// Extend implements goldmark.Extender
+func (e *pdfLinkExtension) Extend(m goldmark.Markdown) {
+	m.Renderer().AddOptions(renderer.WithNodeRenderers(
+		util.Prioritized(NewLinkRenderer(), 100),
+	))
+}
 
 // RenderMarkdownFile reads a markdown file and returns its HTML representation
 func RenderMarkdownFile(filePath string) ([]byte, error) {
@@ -110,6 +177,7 @@ func RenderMarkdownWithPath(md string, docPath string) []byte {
 			extension.DefinitionList, // Enable definition lists
 			extension.GFM,            // GitHub Flavored Markdown
 			// MathJax is now handled via client-side JavaScript
+			&pdfLinkExtension{},
 		),
 		// Parser options
 		goldmark.WithParserOptions(

@@ -24,8 +24,8 @@ type SitemapURL struct {
 }
 
 type Sitemap struct {
-	XMLName xml.Name    `xml:"urlset"`
-	XMLNS   string      `xml:"xmlns,attr"`
+	XMLName xml.Name     `xml:"urlset"`
+	XMLNS   string       `xml:"xmlns,attr"`
 	URLs    []SitemapURL `xml:"url"`
 }
 
@@ -113,7 +113,7 @@ func renderXMLSitemap(w http.ResponseWriter, urls []SitemapURL) {
 }
 
 // renderHTMLSitemap renders a user-friendly HTML sitemap
-func renderHTMLSitemap(w http.ResponseWriter, r *http.Request, pages []SitemapPageEntry, baseURL string, cfg *config.Config, userRole string) {
+func renderHTMLSitemap(w http.ResponseWriter, _ *http.Request, pages []SitemapPageEntry, baseURL string, cfg *config.Config, userRole string) {
 	// Organize pages by category
 	categories := make(map[string][]SitemapPageEntry)
 

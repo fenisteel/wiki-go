@@ -128,7 +128,7 @@
     <!-- Include sidebar template -->
     {{template "sidebar" .}}
 
-    <div class="content{{if or .IsPdfViewerMode .Config.Wiki.DisableContentMaxWidth}} full-width-content{{end}}">
+    <div class="content{{if or .IsPdfViewerMode .Config.Wiki.DisableContentMaxWidth .IsEditMode}} full-width-content{{end}}">
         <div class="breadcrumbs">
             <div class="breadcrumbs-container">
                 <div class="breadcrumbs-path">

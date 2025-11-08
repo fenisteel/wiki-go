@@ -21,8 +21,8 @@ func addCacheControlHeaders(w http.ResponseWriter, filename string) {
 
 	// Check if filename contains a version identifier (hash or version number)
 	isVersioned := strings.Contains(filename, ".v") ||
-	               strings.Contains(filename, ".min.") ||
-	               strings.Contains(filename, "-bundle")
+		strings.Contains(filename, ".min.") ||
+		strings.Contains(filename, "-bundle")
 
 	// 1 year for versioned resources
 	if isVersioned {
@@ -236,6 +236,10 @@ func SetupRoutes(cfg *config.Config) {
 
 		// Add appropriate cache headers for static files
 		addCacheControlHeaders(w, filename)
+
+		if filepath.Ext(filename) == ".mjs" {
+			w.Header().Set("Content-Type", "application/javascript")
+		}
 
 		// Check if this is a favicon file
 		isFaviconFile := false
